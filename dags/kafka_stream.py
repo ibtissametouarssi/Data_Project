@@ -16,7 +16,7 @@ default_args = {
 }
 
 # Répertoire contenant les fichiers à streamer
-DIRECTORY_PATH = '/opt/airflow/dags/files/'  # Personnalisez ce chemin selon votre environnement
+DIRECTORY_PATH = '/opt/airflow/dags/files/'
 
 def stream_all_files_to_kafka(directory_path):
     logging.info(f"🚀 Début du streaming depuis le dossier : {directory_path}")
