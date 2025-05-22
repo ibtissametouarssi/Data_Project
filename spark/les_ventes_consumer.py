@@ -4,17 +4,13 @@ from pyspark.sql.types import StructType, StructField, StringType
 from cassandra.cluster import Cluster
 from unidecode import unidecode
 
-# Échappe les noms de colonnes pour Cassandra
-def escape_column_name(name):
-    return f'"{name}"' if " " in name or "-" in name or "/" in name else name
-
-# Crée dynamiquement une table Cassandra avec un champ ID unique comme clé primaire
-
+# Nettoyage du nom de colonne pour Cassandra et Spark
 def clean_column_name(name):
-    name_ascii = unidecode(name)  # remplace les accents par leur équivalent ASCII
+    name_ascii = unidecode(name)  # remplace accents par ASCII
     name_ascii = name_ascii.replace(" ", "_").replace("-", "_").replace("/", "_")
-    return name_ascii.lower()  # optionnel : tout en minuscules pour uniformité
+    return name_ascii.lower()
 
+# Création de la table Cassandra
 def create_cassandra_table(session, keyspace, table_name, schema):
     fields = ["id TEXT PRIMARY KEY"]
     for field in schema.fields:
@@ -35,10 +31,10 @@ def create_cassandra_table(session, keyspace, table_name, schema):
     session.execute(create_table_query)
     print(f"✅ Table `{table_name}` créée dans le keyspace `{keyspace}`.")
 
-# Crée une session Spark
+# Création de la session Spark
 def get_spark_session():
     return SparkSession.builder \
-        .appName("KafkaToCassandra-les-ventes") \
+        .appName("KafkaToCassandra-lesventes") \
         .config("spark.jars.packages",
                 "com.datastax.spark:spark-cassandra-connector_2.12:3.4.1,"
                 "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1") \
@@ -46,7 +42,7 @@ def get_spark_session():
         .config("spark.ui.port", "4051") \
         .getOrCreate()
 
-# Schéma du topic les ventes
+# Schéma du JSON
 schema = StructType([
     StructField("Code unique", StringType(), False),
     StructField("Nom", StringType(), False),
@@ -62,11 +58,12 @@ schema = StructType([
     StructField("Contrat signé", StringType(), False)
 ])
 
-topic = "les_ventes"
+# Paramètres
+topic = "lesventes"
 keyspace = "spark_streams"
 table = topic
 
-# Programme principal
+# Main
 if __name__ == "__main__":
     spark = get_spark_session()
     spark.sparkContext.setLogLevel("ERROR")
@@ -74,10 +71,10 @@ if __name__ == "__main__":
     cluster = Cluster(["localhost"])
     session = cluster.connect()
 
-    # Créer table Cassandra avec champ id
+    # Créer la table Cassandra
     create_cassandra_table(session, keyspace, table, schema)
 
-    # Lecture du stream Kafka
+    # Lire le stream Kafka
     df = spark.readStream \
         .format("kafka") \
         .option("kafka.bootstrap.servers", "localhost:9092") \
@@ -85,19 +82,23 @@ if __name__ == "__main__":
         .option("startingOffsets", "earliest") \
         .load()
 
-    # Parsing JSON + nettoyage noms colonnes
+    # Parse JSON
     parsed_df = df.selectExpr("CAST(value AS STRING)") \
         .select(from_json(col("value"), schema).alias("data")) \
         .select("data.*")
 
+    # Renommer les colonnes avec clean_column_name()
     for old_name in parsed_df.columns:
-        new_name = old_name.replace(" ", "_").replace("-", "_").replace("/", "_")
+        new_name = clean_column_name(old_name)
         parsed_df = parsed_df.withColumnRenamed(old_name, new_name)
 
-    # Ajout d'un ID unique
+    # Ajouter un ID unique
     parsed_df = parsed_df.withColumn("id", expr("uuid()"))
 
-    # Insertion dans Cassandra
+    # Débogage : afficher colonnes
+    print("🧾 Colonnes après renommage :", parsed_df.columns)
+
+    # Écriture vers Cassandra
     query = parsed_df.writeStream \
         .format("org.apache.spark.sql.cassandra") \
         .option("checkpointLocation", f"/tmp/checkpoint/{topic}") \
