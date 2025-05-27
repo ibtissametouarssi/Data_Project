@@ -34,7 +34,7 @@ def stream_all_files_to_kafka(directory_path):
 
         try:
             if filename.endswith('.csv'):
-                df = pd.read_csv(file_path)
+                df = pd.read_csv(file_path, sep=';', encoding='utf-8-sig', on_bad_lines='skip')
             elif filename.endswith('.xlsx'):
                 df = pd.read_excel(file_path)
             else:
